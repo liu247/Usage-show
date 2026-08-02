@@ -5,6 +5,7 @@ import SwiftUI
 /// frame 需与窗口内容尺寸一致。
 struct SettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
+    @State private var showKey = false
 
     var body: some View {
         Form {
@@ -14,8 +15,23 @@ struct SettingsView: View {
                 Toggle("Kiro（信用值）", isOn: bindingFor("kiro"))
             }
             Section("DeepSeek API Key") {
-                TextField("留空则读取环境变量 DEEPSEEK_API_KEY", text: $settings.deepseekApiKey)
-                    .textFieldStyle(.roundedBorder)
+                HStack {
+                    if showKey {
+                        TextField("留空则读取环境变量 DEEPSEEK_API_KEY", text: $settings.deepseekApiKey)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                    } else {
+                        SecureField("留空则读取环境变量 DEEPSEEK_API_KEY", text: $settings.deepseekApiKey)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    Button {
+                        showKey.toggle()
+                    } label: {
+                        Image(systemName: showKey ? "eye.slash" : "eye")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(showKey ? "隐藏 API key" : "显示 API key")
+                }
             }
             Section("刷新间隔") {
                 Picker("", selection: $settings.refreshInterval) {
