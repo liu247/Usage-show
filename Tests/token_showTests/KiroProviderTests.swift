@@ -50,8 +50,24 @@ struct KiroProviderTests {
     /// 无 token：notLoggedIn 错误
     @Test func testNoToken() async {
         let provider = KiroProvider(tokenProvider: { nil }, arnProvider: { "arn" })
-        await #expect(throws: KiroProvider.KiroError.self) {
+        await #expect(throws: KiroProvider.KiroError.notLoggedIn) {
             _ = try await provider.fetch()
         }
+    }
+
+    /// overage 超用：remaining 为负，shortText 显示负数，status 仍为 .red（安全方向）
+    @Test func testOverageShowsNegativeButRed() throws {
+        let json = """
+        {
+          "usageBreakdownList": [
+            { "resourceType": "CREDIT", "displayName": "Credit",
+              "currentUsage": 120, "usageLimit": 50, "freeTrialInfo": null }
+          ]
+        }
+        """
+        let provider = KiroProvider(tokenProvider: { "tok" }, arnProvider: { "arn" })
+        let snap = try provider.parse(data: Data(json.utf8))
+        #expect(snap.shortText == "-70cr")
+        #expect(snap.status == .red)  // -70/50 = -1.4 < 0.1 → red
     }
 }
