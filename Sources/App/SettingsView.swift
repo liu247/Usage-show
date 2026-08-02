@@ -6,6 +6,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var showKey = false
+    @State private var showCustomInterval = false
     @State private var customIntervalText = ""
     /// 当前值是否为预置选项（30/45/60）
     private var isPresetInterval: Bool { [30, 45, 60].contains(settings.refreshInterval) }
@@ -44,7 +45,7 @@ struct SettingsView: View {
                     Text("自定义…").tag(IntervalChoice.custom)
                 }
                 .pickerStyle(.segmented)
-                if !isPresetInterval {
+                if showCustomInterval || !isPresetInterval {
                     HStack {
                         TextField("秒数（≥30）", text: $customIntervalText)
                             .textFieldStyle(.roundedBorder)
@@ -58,19 +59,31 @@ struct SettingsView: View {
         .frame(width: 360, height: 260)
         .padding()
         .onAppear {
-            if !isPresetInterval { customIntervalText = "\(settings.refreshInterval)" }
+            // 启动时若已存自定义值，进入自定义模式并预填
+            if !isPresetInterval {
+                showCustomInterval = true
+                customIntervalText = "\(settings.refreshInterval)"
+            }
         }
     }
 
-    /// Picker 双向绑定：预置值 ↔ .preset(n)，非预置 → .custom
+    /// Picker 双向绑定：显示自定义模式时 → .custom，否则按当前预置值
     private var intervalSelection: Binding<IntervalChoice> {
         Binding(
-            get: { isPresetInterval ? .preset(settings.refreshInterval) : .custom },
+            get: {
+                if showCustomInterval || !isPresetInterval { return .custom }
+                return .preset(settings.refreshInterval)
+            },
             set: { choice in
-                if case .preset(let n) = choice {
+                switch choice {
+                case .preset(let n):
+                    showCustomInterval = false
                     settings.refreshInterval = n
+                case .custom:
+                    // 进入自定义模式：显示输入框，预填当前值
+                    showCustomInterval = true
+                    customIntervalText = isPresetInterval ? "" : "\(settings.refreshInterval)"
                 }
-                // .custom 时保持当前值不变，让自定义输入框出现
             }
         )
     }
