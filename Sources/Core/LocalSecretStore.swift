@@ -9,7 +9,7 @@ import IOKit
 enum LocalSecretStore {
     private static let prefix = "encrypted."
 
-    /// 派生 AES-256 密钥：SHA256(IOPlatformUUID + NSUserName())
+    /// 派生 AES-256 密钥：SHA256("\(IOPlatformUUID)-\(NSUserName())")
     static func deriveKey() -> SymmetricKey {
         let platformUUID = Self.platformUUID() ?? "unknown-platform"
         let material = "\(platformUUID)-\(NSUserName())"
@@ -18,11 +18,11 @@ enum LocalSecretStore {
     }
 
     /// 存储字符串；加密后 base64 写入 UserDefaults（key 加前缀避免与明文键混淆）。
-    /// 空字符串拒绝存储（调用方 API key 必非空），返回 false。
+    /// 空字符串视为删除（set 空 = 清除旧值），避免"清空"后后台路径仍读到旧密文。
     @discardableResult
     static func set(_ value: String, key: String) -> Bool {
-        guard !value.isEmpty,
-              let encrypted = try? encrypt(Data(value.utf8), key: deriveKey()) else { return false }
+        if value.isEmpty { return delete(key) }
+        guard let encrypted = try? encrypt(Data(value.utf8), key: deriveKey()) else { return false }
         UserDefaults.standard.set(encrypted.base64EncodedString(), forKey: prefix + key)
         return true
     }

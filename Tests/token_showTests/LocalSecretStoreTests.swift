@@ -84,12 +84,25 @@ struct LocalSecretStoreTests {
         #expect(LocalSecretStore.get(key) == nil)
     }
 
-    @Test func testSetEmptyReturnsFalse() {
+    @Test func testSetEmptyDeletesStoredValue() {
         let key = "test-empty-\(UUID().uuidString)"
         defer { LocalSecretStore.delete(key) }
 
-        // 空串拒绝存储；也不应有密文残留
-        #expect(!LocalSecretStore.set("", key: key))
+        // 先存一个值，再 set 空串 = 删除旧密文（用户清空 key 后不应残留）
+        #expect(LocalSecretStore.set("sk-test-value", key: key))
+        #expect(LocalSecretStore.get(key) == "sk-test-value")
+
+        #expect(LocalSecretStore.set("", key: key))
+        #expect(LocalSecretStore.get(key) == nil)
+        #expect(UserDefaults.standard.string(forKey: "encrypted.\(key)") == nil)
+    }
+
+    @Test func testSetEmptyOnMissingKeyIsIdempotent() {
+        let key = "test-empty-missing-\(UUID().uuidString)"
+        defer { LocalSecretStore.delete(key) }
+
+        // key 本就不存在时，set 空 = delete，幂等成功且无残留
+        #expect(LocalSecretStore.set("", key: key))
         #expect(LocalSecretStore.get(key) == nil)
     }
 
