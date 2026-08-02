@@ -77,25 +77,31 @@ final class StatusBarController: NSObject {
     @objc private func openSettings(_ sender: Any?) { onOpenSettings() }
     @objc private func quitApp(_ sender: Any?) { onQuit() }
 
-    /// 将最新快照渲染到 status item
+    /// 将最新快照渲染到 status item（每个工具前带对应状态的彩色圆点）
     func update() {
         guard let button = statusItem.button else { return }
         let snaps = store.orderedSnapshots
-        let title = snaps.map(\.menuBarText).joined(separator: "  ")
-        button.attributedTitle = NSAttributedString(string: title, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
-        ])
-        // 圆点图像：最紧张工具的状态色（red > gray > yellow > green）
-        let worst = snaps.max { colorRank($0.status) < colorRank($1.status) }
-        button.image = dotImage(color: color(for: worst?.status ?? .gray))
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        let attr = NSMutableAttributedString()
+        for (i, snap) in snaps.enumerated() {
+            if i > 0 {
+                attr.append(NSAttributedString(string: "  ", attributes: [.font: font]))
+            }
+            // 每个工具自己的状态圆点（绿/黄/红/灰）
+            attr.append(NSAttributedString(string: "●", attributes: [
+                .font: font,
+                .foregroundColor: color(for: snap.status),
+            ]))
+            attr.append(NSAttributedString(string: " \(snap.menuBarText)", attributes: [
+                .font: font,
+                .foregroundColor: NSColor.labelColor,
+            ]))
+        }
+        button.attributedTitle = attr
+        button.image = nil  // 不再用全局圆点，各工具前已自带彩色标记
         // 失败快照 rawValue 为空 → 回退显示 fullText，避免 "Codex: " 悬空
         button.toolTip = snaps.map { "\($0.displayTitle): \($0.rawValue.isEmpty ? $0.fullText : $0.rawValue)" }
             .joined(separator: "\n")
-    }
-
-    // red 是"额度告急"（最紧急）> gray 是"暂时看不到/失败" > yellow > green
-    private func colorRank(_ s: StatusLevel) -> Int {
-        switch s { case .green: return 0; case .yellow: return 1; case .gray: return 2; case .red: return 3 }
     }
 
     private func color(for s: StatusLevel) -> NSColor {
@@ -105,16 +111,6 @@ final class StatusBarController: NSObject {
         case .red: return .systemRed
         case .gray: return .systemGray
         }
-    }
-
-    private func dotImage(color: NSColor) -> NSImage {
-        let size = NSSize(width: 10, height: 10)
-        let img = NSImage(size: size)
-        img.lockFocus()
-        color.setFill()
-        NSBezierPath(ovalIn: NSRect(origin: .zero, size: size)).fill()
-        img.unlockFocus()
-        return img
     }
 }
 
