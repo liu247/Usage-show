@@ -92,3 +92,14 @@ token 来源：`~/.aws/sso/cache/kiro-auth-token.json`（accessToken，232 字�
 - **keychain**：`Kiro Safe Storage` / `Kiro Key`（Electron safeStorage）属主进程 Web 登录会话，扩展 bundle 无引用；Task 6 无需依赖。
 - **待验证**：token 过期后的刷新调用（SSO OIDC `token_endpoint` + `grant_type=refresh_token`，clientId 从 `<clientIdHash>.json` 读取）——实现时建议在 401 后触发刷新重试。
 - **region**：默认 `us-east-1`，host 即 region（`management.us-east-1.kiro.dev`）。
+
+## Task 6 实现决策（权威，勿偏离）
+
+- **显示的信用值公式**：在 `usageBreakdownList[]` 中按 `resourceType == "CREDIT"` 过滤出信用条目（数组首个匹配项；若数组只有一个条目即为该条目）。**显示 `usageLimit - currentUsage`（剩余额度）**，即：
+  - 若 `freeTrialInfo.freeTrialStatus == "ACTIVE"`：剩余 = `freeTrialInfo.usageLimit - freeTrialInfo.currentUsage`（免费试用桶，实测 500-106=394）
+  - 否则：剩余 = 条目级 `usageLimit - currentUsage`（订阅桶，实测 50-0=50）
+  - `fullText` 同时展示免费试用桶与订阅桶的数字；`shortText` 显示"剩余信用值"，格式如 `394cr`。
+- **401 策略（一期）**：返回错误快照"kiro 登录过期，请重启 kiro 刷新"，**不做自动 token 刷新**（OIDC 端点未实测，一期不赌）。留待后续任务。
+- **profileArn 缺失**：`profile.json` 不存在或 `arn` 为空 → `notLoggedIn` 错误快照"kiro 未登录"。
+- **数值类型**：`currentUsage`/`usageLimit` 按 `Int` 解码（实测为整数）；`overageRate` 按 `Double`。若真网出现 `50.0` 形式则需容错（一期不处理，记录）。
+- **URL 编码**：`profileArn` 含 `:` 与 `*`，实测裸传 200；仍建议 `URLComponents` 做 percent-encoding（正确实践）。
