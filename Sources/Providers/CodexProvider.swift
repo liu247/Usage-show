@@ -25,7 +25,7 @@ struct CodexProvider: UsageProvider {
               let tokens = obj["tokens"] as? [String: Any],
               let access = tokens["access_token"] as? String,
               let acct = tokens["account_id"] as? String,
-              !access.isEmpty else {
+              !access.isEmpty, !acct.isEmpty else {
             throw CodexError.notLoggedIn
         }
         return (access, acct)
@@ -59,17 +59,30 @@ struct CodexProvider: UsageProvider {
     func parse(data: Data) throws -> UsageSnapshot {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let resp = try decoder.decode(CodexUsageResponse.self, from: data)
+        let resp: CodexUsageResponse
+        do {
+            resp = try decoder.decode(CodexUsageResponse.self, from: data)
+        } catch {
+            // 调度层拿到类型化错误而非裸 DecodingError
+            throw CodexError.invalidResponse
+        }
 
         let primary = resp.rateLimit.primaryWindow
-        let used = Double(primary.usedPercent) / 100.0
         let remaining = 100 - primary.usedPercent
+        let primaryUsed = Double(primary.usedPercent) / 100.0
+
+        // 状态色取两个窗口中更紧张的那个（防 5 小时窗口耗尽时仍显示绿）
+        var worstUsed = primaryUsed
+        if let secondary = resp.rateLimit.secondaryWindow {
+            let sUsed = Double(secondary.usedPercent) / 100.0
+            if sUsed > worstUsed { worstUsed = sUsed }
+        }
 
         var fullParts = ["周窗口剩余 \(remaining)%"]
         var short = "\(remaining)%"
         if let secondary = resp.rateLimit.secondaryWindow {
             let sRemain = 100 - secondary.usedPercent
-            short = "\(100 - primary.usedPercent)%|\(sRemain)%"
+            short = "\(remaining)%|\(sRemain)%"
             fullParts.append("5 小时窗口剩余 \(sRemain)%")
         }
         if resp.credits?.hasCredits == true, let bal = resp.credits?.balance, bal != "0" {
@@ -79,7 +92,7 @@ struct CodexProvider: UsageProvider {
             providerID: id,
             shortText: short,
             fullText: fullParts.joined(separator: "，"),
-            fractionUsed: used,
+            fractionUsed: worstUsed,
             rawValue: "plan: \(resp.planType)"
         )
     }

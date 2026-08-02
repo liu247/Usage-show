@@ -49,6 +49,26 @@ struct CodexProviderTests {
         #expect(snap.fullText.contains("5 小时"))
     }
 
+    @Test func testStatusUsesTighterSecondaryWindow() throws {
+        let json = """
+        {
+          "plan_type": "plus",
+          "rate_limit": {
+            "allowed": true, "limit_reached": false,
+            "primary_window": { "used_percent": 20, "limit_window_seconds": 604800,
+                                "reset_after_seconds": 100, "reset_at": 1786191472 },
+            "secondary_window": { "used_percent": 90, "limit_window_seconds": 18000,
+                                  "reset_after_seconds": 200, "reset_at": 1786191472 }
+          }
+        }
+        """
+        let provider = CodexProvider(authProvider: { ("token", "acct") })
+        let snap = try provider.parse(data: Data(json.utf8))
+        #expect(snap.shortText == "80%|10%")
+        #expect(snap.fractionUsed == 0.9)          // 取更紧张窗口
+        #expect(snap.status == .red)               // 0.9 > 0.8，不能因周窗口宽松显示绿
+    }
+
     @Test func testAuthFileMissing() async {
         let provider = CodexProvider(authProvider: { throw CodexProvider.CodexError.notLoggedIn })
         await #expect(throws: CodexProvider.CodexError.self) {
