@@ -70,4 +70,102 @@ struct KiroProviderTests {
         #expect(snap.shortText == "-70cr")
         #expect(snap.status == .red)  // -70/50 = -1.4 < 0.1 → red
     }
+
+    // MARK: - Token 刷新（注入式：临时目录 + 纯解析，不测网络）
+
+    /// readCredsFromFile：从临时 cache 目录读 refreshToken + clientId + clientSecret
+    @Test func testLoadTokenCredsFromFile() throws {
+        try withTempCacheDir { tmp in
+            let creds = KiroProvider().readCredsFromFile(refreshToken: nil, cacheDir: tmp)
+            #expect(creds?.refreshToken == "refresh-token-abc")
+            #expect(creds?.clientId == "client-id-123")
+            #expect(creds?.clientSecret.count == 5053)
+        }
+    }
+
+    /// readCredsFromFile：传入 cached refreshToken 时优先使用它（本地持久化优先）
+    @Test func testLoadTokenCredsPrefersCachedRefresh() throws {
+        try withTempCacheDir { tmp in
+            let creds = KiroProvider().readCredsFromFile(refreshToken: "cached-refresh-token", cacheDir: tmp)
+            #expect(creds?.refreshToken == "cached-refresh-token")
+            #expect(creds?.clientId == "client-id-123")
+            #expect(creds?.clientSecret.count == 5053)
+        }
+    }
+
+    /// readCredsFromFile：缺 clientIdHash / 缺 client 文件 → nil
+    @Test func testLoadTokenCredsMissingFiles() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("kiro-cache-empty-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        #expect(KiroProvider().readCredsFromFile(refreshToken: nil, cacheDir: tmp) == nil)
+    }
+
+    /// parseTokenResponse：OIDC 200 响应 → accessToken + refreshToken
+    @Test func testParseTokenResponse() throws {
+        let json = """
+        {"accessToken": "new-access-token", "refreshToken": "new-refresh-token",
+         "expiresIn": 28800, "tokenType": "Bearer"}
+        """
+        let parsed = KiroProvider.parseTokenResponse(Data(json.utf8))
+        #expect(parsed?.access == "new-access-token")
+        #expect(parsed?.refresh == "new-refresh-token")
+    }
+
+    /// parseTokenResponse：响应无 refreshToken 字段 → refresh 为 nil，accessToken 仍返回
+    @Test func testParseTokenResponseNoRefresh() throws {
+        let json = #"{"accessToken": "new-access-token", "expiresIn": 28800}"#
+        let parsed = KiroProvider.parseTokenResponse(Data(json.utf8))
+        #expect(parsed?.access == "new-access-token")
+        #expect(parsed?.refresh == nil)
+    }
+
+    /// parseTokenResponse：非法 JSON / 缺 accessToken / 空 accessToken → nil
+    @Test func testParseTokenResponseInvalid() throws {
+        #expect(KiroProvider.parseTokenResponse(Data(#"{"refreshToken":"x"}"#.utf8)) == nil)
+        #expect(KiroProvider.parseTokenResponse(Data("not-json".utf8)) == nil)
+        #expect(KiroProvider.parseTokenResponse(Data()) == nil)
+    }
+
+    /// defaultToken：优先读 LocalSecretStore 持久化的新 token（测试 key 与 App 相同，
+    /// 但 Swift Testing 进程的 UserDefaults.standard 是测试 bundle 域；set 后清理不污染）
+    @Test func testDefaultTokenPrefersCached() throws {
+        let key = "kiroAccessToken"
+        LocalSecretStore.set("cached-access-token", key: key)
+        defer { LocalSecretStore.delete(key) }
+        #expect(KiroProvider.defaultToken() == "cached-access-token")
+    }
+
+    // MARK: - 辅助
+
+    /// 构造临时 .aws/sso/cache 目录（全部占位值，不接触真实凭据）；body 执行后自动清理
+    private func withTempCacheDir(_ body: (URL) throws -> Void) throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("kiro-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+
+        // kiro-auth-token.json：refreshToken + clientIdHash
+        let authToken: [String: Any] = [
+            "accessToken": "expired-access-token",
+            "refreshToken": "refresh-token-abc",
+            "clientIdHash": "deadbeef",
+            "expiresAt": "2030-01-01T00:00:00Z",
+            "region": "us-east-1",
+        ]
+        try JSONSerialization.data(withJSONObject: authToken)
+            .write(to: tmp.appendingPathComponent("kiro-auth-token.json"))
+
+        // <clientIdHash>.json：clientId + clientSecret（5053 字符占位）
+        let client: [String: Any] = [
+            "clientId": "client-id-123",
+            "clientSecret": String(repeating: "s", count: 5053),
+            "expiresAt": "2030-01-01T00:00:00Z",
+        ]
+        try JSONSerialization.data(withJSONObject: client)
+            .write(to: tmp.appendingPathComponent("deadbeef.json"))
+
+        try body(tmp)
+    }
 }

@@ -90,7 +90,7 @@ token 来源：`~/.aws/sso/cache/kiro-auth-token.json`（accessToken，232 字�
 - **kiro-web vs kiro-desktop 认证差异**：`app.kiro.dev/api/v1/me` 对 Bearer 返回 "Bearer token authentication is not supported for this operation" —— Web 端 REST 用会话 cookie，脚本场景应使用 management API 的 Bearer 认证。
 - **leveldb JWT**：`~/Library/Application Support/kiro/Local Storage/leveldb/*.ldb` 当前无 JWT 命中（kiro 未运行、webview 未初始化）。设计阶段记录的 JWT 应为运行时 webview 写入的副本；持久、稳定的来源是 `~/.aws/sso/cache/kiro-auth-token.json`。
 - **keychain**：`Kiro Safe Storage` / `Kiro Key`（Electron safeStorage）属主进程 Web 登录会话，扩展 bundle 无引用；Task 6 无需依赖。
-- **待验证**：token 过期后的刷新调用（SSO OIDC `token_endpoint` + `grant_type=refresh_token`，clientId 从 `<clientIdHash>.json` 读取）——实现时建议在 401 后触发刷新重试。
+- **token 刷新（已实现）**：见下方 Task 6 实现决策——403 触发 OIDC `refresh_token` 刷新（端点实测通过），非 401。
 - **region**：默认 `us-east-1`，host 即 region（`management.us-east-1.kiro.dev`）。
 
 ## Task 6 实现决策（权威，勿偏离）
@@ -99,7 +99,7 @@ token 来源：`~/.aws/sso/cache/kiro-auth-token.json`（accessToken，232 字�
   - 若 `freeTrialInfo.freeTrialStatus == "ACTIVE"`：剩余 = `freeTrialInfo.usageLimit - freeTrialInfo.currentUsage`（免费试用桶，实测 500-106=394）
   - 否则：剩余 = 条目级 `usageLimit - currentUsage`（订阅桶，实测 50-0=50）
   - `fullText` 同时展示免费试用桶与订阅桶的数字；`shortText` 显示"剩余信用值"，格式如 `394cr`。
-- **401 策略（一期）**：返回错误快照"kiro 登录过期，请重启 kiro 刷新"，**不做自动 token 刷新**（OIDC 端点未实测，一期不赌）。留待后续任务。
+- **token 过期刷新（已实现）**：`GET getUsageLimits` 返回 **403**（`{"message":"Token expired"}`，accessToken 约 8h 有效）时，自动走 SSO OIDC 刷新：`POST https://oidc.us-east-1.amazonaws.com/token`，body `{"grantType":"refresh_token","refreshToken":…,"clientId":…,"clientSecret":…}`（clientIdHash 对应 `<clientIdHash>.json` 文件）。成功后新 accessToken 存入 `LocalSecretStore`（`kiroAccessToken`，不写 .aws 文件——provenance 权限不允许），下一轮 `defaultToken` 优先读缓存、兜底 .aws 文件；刷新失败（服务端拒绝）清除持久化凭据回退 .aws 文件；网络异常保留缓存下轮重试。401 与刷新后仍 401/403 时返回错误快照"kiro 登录过期，请重启 kiro 刷新"。
 - **profileArn 缺失**：`profile.json` 不存在或 `arn` 为空 → `notLoggedIn` 错误快照"kiro 未登录"。
 - **数值类型**：`currentUsage`/`usageLimit` 按 `Int` 解码（实测为整数）；`overageRate` 按 `Double`。若真网出现 `50.0` 形式则需容错（一期不处理，记录）。
 - **URL 编码**：`profileArn` 含 `:` 与 `*`，实测裸传 200；仍建议 `URLComponents` 做 percent-encoding（正确实践）。
