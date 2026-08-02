@@ -17,13 +17,13 @@ final class AppSettings: ObservableObject {
     @Published var enabledProviders: [String] {
         didSet { UserDefaults.standard.set(enabledProviders, forKey: "enabledProviders") }
     }
-    /// DeepSeek API key 存 Keychain（明文不落 UserDefaults）；存储时 trim 首尾空白，
-    /// 修复粘贴时尾随换行导致 "Bearer key\n" 认证 401 的问题。
+    /// DeepSeek API key 用 AES-GCM 加密后存 UserDefaults（LocalSecretStore，打开即用）；
+    /// 存储时 trim 首尾空白，修复粘贴时尾随换行导致 "Bearer key\n" 认证 401 的问题。
     @Published var deepseekApiKey: String {
         didSet {
             let cleaned = Self.sanitizeKey(deepseekApiKey)
             // 内存值保持用户输入原样即可，存储与读取路径均已 trim。
-            KeychainStore.set(cleaned, key: "deepseekApiKey")
+            LocalSecretStore.set(cleaned, key: "deepseekApiKey")
         }
     }
     @Published var refreshInterval: Int {
@@ -33,27 +33,9 @@ final class AppSettings: ObservableObject {
     init() {
         let d = UserDefaults.standard
         enabledProviders = d.stringArray(forKey: "enabledProviders") ?? ["codex", "deepseek", "kiro"]
-        // DeepSeek API key：Keychain 优先。Keychain 无值时迁移 UserDefaults 旧值
-        // （trim 后写入 Keychain 并删除明文残留，一次性清理）。
-        // 注：init 中给属性赋值不会触发 didSet，故迁移需显式写 Keychain。
-        let stored = Self.sanitizeKey(KeychainStore.get("deepseekApiKey"))
-        if !stored.isEmpty {
-            deepseekApiKey = stored
-        } else if let legacy = d.string(forKey: "deepseekApiKey") {
-            let cleaned = Self.sanitizeKey(legacy)
-            deepseekApiKey = cleaned
-            if !cleaned.isEmpty {
-                // 写入 Keychain 成功才删除明文残留；失败则保留旧值，下次启动重试迁移，
-                // 避免两处都丢失 key。
-                if KeychainStore.set(cleaned, key: "deepseekApiKey") {
-                    d.removeObject(forKey: "deepseekApiKey")
-                }
-            } else {
-                d.removeObject(forKey: "deepseekApiKey") // 纯空白旧值无用，直接清理
-            }
-        } else {
-            deepseekApiKey = ""
-        }
+        // DeepSeek API key：LocalSecretStore（AES-GCM 加密后存 UserDefaults），
+        // 打开即用、无需 Keychain。init 中给属性赋值不会触发 didSet，故显式从持久层读取。
+        deepseekApiKey = LocalSecretStore.get("deepseekApiKey") ?? ""
         let saved = d.integer(forKey: "refreshInterval")
         refreshInterval = saved >= 30 ? saved : 45
     }

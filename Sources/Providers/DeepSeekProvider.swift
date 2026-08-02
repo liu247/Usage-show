@@ -31,15 +31,16 @@ struct DeepSeekProvider: UsageProvider {
     /// 首个 await（网络请求）之前的代码运行在调用方 executor 上——app 内调用（启动/UI/调度器）
     /// 都在主线程，Task 2 注释已确认单例首次访问发生在主线程，故主线程路径用
     /// MainActor.assumeIsolated 同步读设置。为防未来后台刷新路径（Task 8）在非主线程调用本闭包
-    /// 导致 assumeIsolated trap，非主线程时回退直读 Keychain 持久层（AppSettings.didSet 即时写入、
-    /// 值一致，且 Keychain 读取线程安全）。
-    /// key 存 Keychain 而非 UserDefaults；两处读取结果均 trim 首尾空白（粘贴换行会导致 401）。
+    /// 导致 assumeIsolated trap，非主线程时回退直读本地加密持久层（AppSettings.didSet 即时写入、
+    /// 值一致，且 LocalSecretStore 纯函数读写线程安全、无授权交互）。
+    /// key 存本地 AES-GCM 加密（LocalSecretStore，密文落 UserDefaults）；两处读取结果
+    /// 均 trim 首尾空白（粘贴换行会导致 401）。
     static func defaultApiKeyProvider() -> String? {
         let fromSettings: String
         if Thread.isMainThread {
             fromSettings = MainActor.assumeIsolated { AppSettings.shared.deepseekApiKey }
         } else {
-            fromSettings = KeychainStore.get("deepseekApiKey") ?? ""
+            fromSettings = LocalSecretStore.get("deepseekApiKey") ?? ""
         }
         let trimmed = AppSettings.sanitizeKey(fromSettings)
         if !trimmed.isEmpty { return trimmed }
