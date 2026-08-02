@@ -1,10 +1,12 @@
 import Foundation
 
+@MainActor
 final class AppSettings: ObservableObject {
-    // Swift 6 严格并发：单例由主线程独占访问（菜单栏应用逻辑均跑主线程），
-    // 用 nonisolated(unsafe) 标记 static 存储属性；类保持非 Sendable，
-    // 若未来把 AppSettings 实例跨 actor 传递，编译器仍会拦截。
-    static nonisolated(unsafe) let shared = AppSettings()
+    // 主线程单例：全部 @Published 状态由主线程独占访问。
+    // shared 用 nonisolated 允许任意上下文取引用；实例被 @MainActor 隔离（隐式 Sendable），
+    // 后台线程读写属性会在编译期报错，强制调用方跳主线程（如 MainActor.run）。
+    // 单例首次访问发生在主线程（app 启动/UI/调度器），故初始化用 MainActor.assumeIsolated。
+    static nonisolated let shared = MainActor.assumeIsolated { AppSettings() }
 
     @Published var enabledProviders: [String] {
         didSet { UserDefaults.standard.set(enabledProviders, forKey: "enabledProviders") }
