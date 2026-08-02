@@ -9,6 +9,7 @@ final class StatusBarController: NSObject {
     private let onRefresh: () async -> Void
     private let onOpenSettings: () -> Void
     private let onQuit: () -> Void
+    private var isRefreshing = false  // 刷新中禁用"立即刷新"菜单项
 
     init(store: RefreshStore,
          onRefresh: @escaping () async -> Void,
@@ -31,7 +32,9 @@ final class StatusBarController: NSObject {
     @objc private func statusClicked(_ sender: Any?) {
         // 点击：先刷新再弹菜单
         Task { @MainActor in
+            isRefreshing = true
             await onRefresh()
+            isRefreshing = false
             self.showMenu()
         }
     }
@@ -52,7 +55,9 @@ final class StatusBarController: NSObject {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "立即刷新", action: #selector(refreshNow(_:)), keyEquivalent: "r"))
+        let refreshItem = NSMenuItem(title: "立即刷新", action: #selector(refreshNow(_:)), keyEquivalent: "r")
+        refreshItem.isEnabled = !isRefreshing  // 刷新中禁用（spec：立即刷新禁用态）
+        menu.addItem(refreshItem)
         menu.addItem(NSMenuItem(title: "设置…", action: #selector(openSettings(_:)), keyEquivalent: ","))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "退出", action: #selector(quitApp(_:)), keyEquivalent: "q"))
@@ -62,7 +67,11 @@ final class StatusBarController: NSObject {
     }
 
     @objc private func refreshNow(_ sender: Any?) {
-        Task { @MainActor in await onRefresh() }
+        Task { @MainActor in
+            isRefreshing = true
+            await onRefresh()
+            isRefreshing = false
+        }
     }
 
     @objc private func openSettings(_ sender: Any?) { onOpenSettings() }
@@ -76,15 +85,17 @@ final class StatusBarController: NSObject {
         button.attributedTitle = NSAttributedString(string: title, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
         ])
-        // 圆点图像：最紧张工具的状态色
+        // 圆点图像：最紧张工具的状态色（red > gray > yellow > green）
         let worst = snaps.max { colorRank($0.status) < colorRank($1.status) }
         button.image = dotImage(color: color(for: worst?.status ?? .gray))
-        button.toolTip = snaps.map { "\($0.displayTitle): \($0.rawValue)" }
+        // 失败快照 rawValue 为空 → 回退显示 fullText，避免 "Codex: " 悬空
+        button.toolTip = snaps.map { "\($0.displayTitle): \($0.rawValue.isEmpty ? $0.fullText : $0.rawValue)" }
             .joined(separator: "\n")
     }
 
+    // red 是"额度告急"（最紧急）> gray 是"暂时看不到/失败" > yellow > green
     private func colorRank(_ s: StatusLevel) -> Int {
-        switch s { case .green: return 0; case .yellow: return 1; case .red: return 2; case .gray: return 3 }
+        switch s { case .green: return 0; case .yellow: return 1; case .gray: return 2; case .red: return 3 }
     }
 
     private func color(for s: StatusLevel) -> NSColor {
