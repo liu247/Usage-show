@@ -49,4 +49,26 @@ struct DeepSeekProviderTests {
             _ = try await provider.fetch()
         }
     }
+
+    // MARK: - key 规范化（trim 首尾空白，修复粘贴换行导致的 401）
+
+    @Test func testSanitizeKeyTrimsWhitespace() {
+        // 用户报告的场景：粘贴 key 带尾随换行
+        #expect(AppSettings.sanitizeKey("  sk-test  \n\n") == "sk-test")
+        #expect(AppSettings.sanitizeKey("\nsk-test\r\n") == "sk-test")
+        #expect(AppSettings.sanitizeKey("\tsk-test \n") == "sk-test")
+        #expect(AppSettings.sanitizeKey("sk-test") == "sk-test")
+    }
+
+    @Test func testSanitizeKeyNilAndBlank() {
+        // 纯空白视为未配置
+        #expect(AppSettings.sanitizeKey("   \n\t ") == "")
+        #expect(AppSettings.sanitizeKey("\n\n\n") == "")
+        #expect(AppSettings.sanitizeKey(nil) == "")
+    }
+
+    @Test func testSanitizeKeyKeepsInnerWhitespace() {
+        // 仅 trim 首尾，内部空白保留
+        #expect(AppSettings.sanitizeKey(" sk-abc 123 ") == "sk-abc 123")
+    }
 }
