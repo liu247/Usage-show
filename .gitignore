@@ -8,3 +8,7 @@ reasonix.toml
 
 # SwiftPM 构建产物
 .build/
+
+# 忽略所有 AppleDouble 元数据文件（任何层级）
+.**
+**/._*
