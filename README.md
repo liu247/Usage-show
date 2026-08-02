@@ -5,7 +5,7 @@ macOS 菜单栏工具：实时显示 codex / deepseek / kiro 的 token 额度与
 ## 构建与运行
 
 ```bash
-# 注意：本仓库位于 exFAT 卷（如 <本地卷路径>），SwiftPM 构建目录必须指到本地卷
+# 若仓库位于 exFAT/外置卷，SwiftPM 构建目录需指到本地卷（--scratch-path）
 swift build --disable-sandbox --scratch-path /tmp/token_show_build
 swift run --scratch-path /tmp/token_show_build token_show
 ```

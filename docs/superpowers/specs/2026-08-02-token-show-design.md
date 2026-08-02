@@ -124,7 +124,7 @@ struct UsageSnapshot {
 **已定位的事实**（调研阶段确认）：
 - 登录态：`~/Library/Application Support/kiro/Local Storage/leveldb/*.ldb` 含 JWT tokens；keychain 有 `Kiro Safe Storage` / `Kiro Key`（Electron safeStorage）
 - API host：`https://app.kiro.dev/api/v1`（REST）+ `https://management.us-east-1.kiro.dev`（gRPC control plane，host 含 `kirocontrolplanebearerservice`）
-- 用户账号：email <email>、account_id `<account_id>`、auth_method chatgpt（来自 statsig 事件）
+- 用户账号：email（脱敏，来自 statsig 事件）、auth_method chatgpt
 - `app.kiro.dev/api/v1/me` 对 Bearer token 返回 "Bearer token authentication is not supported for this operation" → 需要 cookie 或自定义 header，认证方式待逆向
 
 **实现步骤（实现阶段第一个任务）**：
