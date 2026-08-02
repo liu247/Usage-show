@@ -5,3 +5,6 @@
 # Reasonix
 .reasonix/
 reasonix.toml
+
+# SwiftPM 构建产物
+.build/
