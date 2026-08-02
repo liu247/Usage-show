@@ -77,7 +77,7 @@ final class StatusBarController: NSObject {
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
         ])
         // 圆点图像：最紧张工具的状态色
-        let worst = snaps.min { colorRank($0.status) < colorRank($1.status) }
+        let worst = snaps.max { colorRank($0.status) < colorRank($1.status) }
         button.image = dotImage(color: color(for: worst?.status ?? .gray))
         button.toolTip = snaps.map { "\($0.displayTitle): \($0.rawValue)" }
             .joined(separator: "\n")
