@@ -4,9 +4,16 @@ struct KiroProvider: UsageProvider {
     var id: String { "kiro" }
     var displayName: String { "Kiro" }
 
-    enum KiroError: Error {
+    enum KiroError: Error, LocalizedError {
         case notLoggedIn      // token 或 profileArn 缺失
         case invalidResponse
+
+        var errorDescription: String? {
+            switch self {
+            case .notLoggedIn: return "kiro 未登录（token 或 profile 缺失）"
+            case .invalidResponse: return "kiro 响应解析失败"
+            }
+        }
     }
 
     /// 注入式凭据读取，便于测试；默认读 kiro 本地配置文件。

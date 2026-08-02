@@ -61,16 +61,28 @@ final class RefreshScheduler {
 
     func start() {
         timer?.invalidate()
+        timer = makeTimer()
+        Task { @MainActor in await refreshAll() }  // 启动即刷新一轮
+    }
+
+    func stop() { timer?.invalidate(); timer = nil }
+
+    /// 刷新间隔设置变化后重建定时器：invalidate 旧 timer，按当前 AppSettings.refreshInterval 重建。
+    /// 由 AppDelegate 监听 AppSettings.$refreshInterval 时调用，使设置窗口的 30/45/60s 实时生效。
+    func reschedule() {
+        timer?.invalidate()
+        timer = makeTimer()
+    }
+
+    /// 按 AppSettings.shared.refreshInterval 创建 repeating timer（start/reschedule 共用）。
+    private func makeTimer() -> Timer {
         let interval = Double(AppSettings.shared.refreshInterval)
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in await self?.refreshAll() }
         }
         RunLoop.main.add(t, forMode: .common)
-        timer = t
-        Task { @MainActor in await refreshAll() }  // 启动即刷新一轮
+        return t
     }
-
-    func stop() { timer?.invalidate(); timer = nil }
 
     func refreshNow() async {
         await refreshAll()
@@ -94,9 +106,17 @@ final class RefreshScheduler {
                 store.update(snap)
             } catch {
                 b.recordFailure(now: now())
-                store.updateError(id: id, error: "\(error)")
+                store.updateError(id: id, error: Self.errorText(error))
             }
             backoffs[id] = b
         }
+    }
+
+    /// 错误 → 展示文本：LocalizedError 优先取其中文 errorDescription，其余保留原始描述（如 status(500)）。
+    static func errorText(_ error: Error) -> String {
+        if let localized = error as? any LocalizedError, let desc = localized.errorDescription {
+            return desc
+        }
+        return String(describing: error)
     }
 }

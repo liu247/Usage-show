@@ -4,9 +4,16 @@ struct CodexProvider: UsageProvider {
     var id: String { "codex" }
     var displayName: String { "Codex" }
 
-    enum CodexError: Error {
+    enum CodexError: Error, LocalizedError {
         case notLoggedIn          // ~/.codex/auth.json 缺失或无法解析
         case invalidResponse
+
+        var errorDescription: String? {
+            switch self {
+            case .notLoggedIn: return "需重新登录 codex（~/.codex/auth.json 缺失或无效）"
+            case .invalidResponse: return "codex 响应解析失败"
+            }
+        }
     }
 
     /// 注入式凭据读取，便于测试；默认读 ~/.codex/auth.json

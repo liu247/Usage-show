@@ -4,9 +4,16 @@ struct DeepSeekProvider: UsageProvider {
     var id: String { "deepseek" }
     var displayName: String { "DeepSeek" }
 
-    enum DeepSeekError: Error {
+    enum DeepSeekError: Error, LocalizedError {
         case missingKey
         case invalidResponse
+
+        var errorDescription: String? {
+            switch self {
+            case .missingKey: return "未配置 API key（设置或环境变量 DEEPSEEK_API_KEY）"
+            case .invalidResponse: return "deepseek 响应解析失败"
+            }
+        }
     }
 
     /// 注入式 key 读取：设置 > 环境变量；便于测试。

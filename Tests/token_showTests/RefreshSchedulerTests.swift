@@ -75,6 +75,19 @@ struct RefreshSchedulerTests {
         await scheduler.refreshNow()
         #expect(mock.fetchCount == 6)
     }
+    // MARK: - 错误文本：LocalizedError 优先中文描述
+
+    @Test @MainActor func testErrorTextPrefersLocalizedDescription() {
+        // 三个 Provider 的错误枚举：LocalizedError → 中文 errorDescription
+        #expect(RefreshScheduler.errorText(CodexProvider.CodexError.notLoggedIn) == "需重新登录 codex（~/.codex/auth.json 缺失或无效）")
+        #expect(RefreshScheduler.errorText(CodexProvider.CodexError.invalidResponse) == "codex 响应解析失败")
+        #expect(RefreshScheduler.errorText(DeepSeekProvider.DeepSeekError.missingKey) == "未配置 API key（设置或环境变量 DEEPSEEK_API_KEY）")
+        #expect(RefreshScheduler.errorText(DeepSeekProvider.DeepSeekError.invalidResponse) == "deepseek 响应解析失败")
+        #expect(RefreshScheduler.errorText(KiroProvider.KiroError.notLoggedIn) == "kiro 未登录（token 或 profile 缺失）")
+        #expect(RefreshScheduler.errorText(KiroProvider.KiroError.invalidResponse) == "kiro 响应解析失败")
+        // 非 LocalizedError（如 HTTPError）保留原始描述，行为不变
+        #expect(RefreshScheduler.errorText(HTTPError.status(500)) == "status(500)")
+    }
 }
 
 /// 可控失败/成功与调用计数的 mock Provider。

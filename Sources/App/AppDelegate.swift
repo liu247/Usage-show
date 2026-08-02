@@ -33,6 +33,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
 
         scheduler.start()
+
+        // 刷新间隔设置变化（设置窗口 30/45/60s）→ 重建定时器，实时生效。
+        // dropFirst() 跳过订阅时的初始值（start() 已建好 timer，无需重复重建）。
+        AppSettings.shared.$refreshInterval
+            .dropFirst()
+            .sink { [weak self] _ in self?.scheduler.reschedule() }
+            .store(in: &cancellables)
     }
 
     private func openSettings() {
