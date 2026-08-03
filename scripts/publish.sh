@@ -52,7 +52,25 @@ ditto Usage-show.app /tmp/release_stage/Usage-show.app
 find /tmp/release_stage -name "._*" -delete 2>/dev/null || true
 cd /tmp/release_stage && COPYFILE_DISABLE=1 zip -rq "$ZIP" Usage-show.app
 cd - >/dev/null
-echo "==> 打包完成: $ZIP ($(du -h "$ZIP" | cut -f1))"
+echo "==> zip 打包完成: $ZIP ($(du -h "$ZIP" | cut -f1))"
+
+# 5b. 打包 dmg（拖拽安装布局：Usage-show.app + Applications 快捷方式）
+DMG=/tmp/Usage-show-v$VERSION-macos-arm64.dmg
+rm -f "$DMG"
+rm -rf /tmp/dmg_stage && mkdir -p /tmp/dmg_stage
+ditto Usage-show.app /tmp/dmg_stage/Usage-show.app
+find /tmp/dmg_stage -name "._*" -delete 2>/dev/null || true
+ln -sf /Applications /tmp/dmg_stage/Applications
+if hdiutil create -volname "Usage-show" -srcfolder /tmp/dmg_stage -ov -format UDZO "$DMG" >/tmp/dmg_build.log 2>&1; then
+  echo "==> dmg 打包完成: $DMG ($(du -h "$DMG" | cut -f1))"
+else
+  echo "警告: dmg 打包失败（hdiutil 无权限）。请在有权限的终端手动运行:"
+  echo "  rm -rf /tmp/dmg_stage && mkdir -p /tmp/dmg_stage"
+  echo "  ditto Usage-show.app /tmp/dmg_stage/Usage-show.app"
+  echo "  ln -sf /Applications /tmp/dmg_stage/Applications"
+  echo "  hdiutil create -volname Usage-show -srcfolder /tmp/dmg_stage -ov -format UDZO /tmp/Usage-show-v$VERSION-macos-arm64.dmg"
+  DMG=""  # 不传 dmg 资产
+fi
 
 # 6. 提交代码（若 Assets/版本变化未提交）
 if ! git diff --quiet; then
@@ -80,13 +98,25 @@ for line in r.stdout.splitlines():
 if gh release view "v$VERSION" --repo liu247/Usage-show >/dev/null 2>&1; then
   echo "==> release v$VERSION 已存在，上传资产"
   gh release upload "v$VERSION" "$ZIP" --repo liu247/Usage-show --clobber
+  if [ -n "$DMG" ]; then
+    gh release upload "v$VERSION" "$DMG" --repo liu247/Usage-show --clobber
+  fi
 else
   echo "==> 创建 release v$VERSION"
-  gh release create "v$VERSION" \
-    --repo liu247/Usage-show \
-    --title "Usage-show v$VERSION" \
-    --notes "macOS 菜单栏 token 额度显示工具（codex / deepseek / kiro）" \
-    "$ZIP"
+  if [ -n "$DMG" ]; then
+    gh release create "v$VERSION" \
+      --repo liu247/Usage-show \
+      --title "Usage-show v$VERSION" \
+      --notes "macOS 菜单栏 token 额度显示工具（codex / deepseek / kiro）
+安装：下载 .dmg，打开后拖 Usage-show.app 到 Applications；若 Gatekeeper 提示，右键→打开。" \
+      "$ZIP" "$DMG"
+  else
+    gh release create "v$VERSION" \
+      --repo liu247/Usage-show \
+      --title "Usage-show v$VERSION" \
+      --notes "macOS 菜单栏 token 额度显示工具（codex / deepseek / kiro）" \
+      "$ZIP"
+  fi
 fi
 
 echo ""
