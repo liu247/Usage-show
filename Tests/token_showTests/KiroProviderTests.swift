@@ -76,30 +76,65 @@ struct KiroProviderTests {
     /// readCredsFromFile：从临时 cache 目录读 refreshToken + clientId + clientSecret
     @Test func testLoadTokenCredsFromFile() throws {
         try withTempCacheDir { tmp in
-            let creds = KiroProvider().readCredsFromFile(refreshToken: nil, cacheDir: tmp)
-            #expect(creds?.refreshToken == "refresh-token-abc")
-            #expect(creds?.clientId == "client-id-123")
-            #expect(creds?.clientSecret.count == 5053)
+            let result = KiroProvider().readCredsFromFile(refreshToken: nil, cacheDir: tmp)
+            guard case .success(let creds) = result else {
+                Issue.record("应为 .success，实际 \(result)")
+                return
+            }
+            #expect(creds.refreshToken == "refresh-token-abc")
+            #expect(creds.clientId == "client-id-123")
+            #expect(creds.clientSecret.count == 5053)
         }
     }
 
     /// readCredsFromFile：传入 cached refreshToken 时优先使用它（本地持久化优先）
     @Test func testLoadTokenCredsPrefersCachedRefresh() throws {
         try withTempCacheDir { tmp in
-            let creds = KiroProvider().readCredsFromFile(refreshToken: "cached-refresh-token", cacheDir: tmp)
-            #expect(creds?.refreshToken == "cached-refresh-token")
-            #expect(creds?.clientId == "client-id-123")
-            #expect(creds?.clientSecret.count == 5053)
+            let result = KiroProvider().readCredsFromFile(refreshToken: "cached-refresh-token", cacheDir: tmp)
+            guard case .success(let creds) = result else {
+                Issue.record("应为 .success，实际 \(result)")
+                return
+            }
+            #expect(creds.refreshToken == "cached-refresh-token")
+            #expect(creds.clientId == "client-id-123")
+            #expect(creds.clientSecret.count == 5053)
         }
     }
 
-    /// readCredsFromFile：缺 clientIdHash / 缺 client 文件 → nil
+    /// readCredsFromFile：缺 clientIdHash / 缺 client 文件 → .missing
     @Test func testLoadTokenCredsMissingFiles() throws {
         let fm = FileManager.default
         let tmp = fm.temporaryDirectory.appendingPathComponent("kiro-cache-empty-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: tmp) }
         try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
-        #expect(KiroProvider().readCredsFromFile(refreshToken: nil, cacheDir: tmp) == nil)
+        let result = KiroProvider().readCredsFromFile(refreshToken: nil, cacheDir: tmp)
+        guard case .missing = result else {
+            Issue.record("应为 .missing，实际 \(result)")
+            return
+        }
+    }
+
+    /// readCredsFromFile：Google/social 登录（无 clientIdHash）→ .unsupportedProvider
+    @Test func testGoogleProviderUnsupported() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("kiro-cache-google-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: tmp) }
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        // 构造 Google 登录的 token 文件（无 clientIdHash，含 profileArn）
+        let tok: [String: Any] = [
+            "accessToken": "aoaAAA-test-token",
+            "refreshToken": "aorAAA-test-refresh",
+            "profileArn": "arn:aws:codewhisperer:us-east-1:123456789012:profile/test",
+            "expiresAt": "2026-08-03T10:00:00.000Z",
+            "authMethod": "social",
+            "provider": "Google",
+        ]
+        try JSONSerialization.data(withJSONObject: tok).write(to: tmp.appendingPathComponent("kiro-auth-token.json"))
+        let result = KiroProvider().readCredsFromFile(refreshToken: nil, cacheDir: tmp)
+        guard case .unsupportedProvider = result else {
+            Issue.record("应为 .unsupportedProvider，实际 \(result)")
+            return
+        }
     }
 
     /// parseTokenResponse：OIDC 200 响应 → accessToken + refreshToken

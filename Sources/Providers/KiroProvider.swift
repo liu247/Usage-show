@@ -118,7 +118,15 @@ struct KiroProvider: UsageProvider {
     /// 用 refreshToken 换新 accessToken；成功返回新 token 并持久化，失败返回 nil。
     /// 并发注意：fetch 在后台 executor 运行，本方法 nonisolated（struct 方法默认非隔离）。
     private func refreshToken() async -> String? {
-        guard let creds = loadTokenCreds() else { return nil }
+        // 自适应：BuilderId → OIDC 刷新；Google/social（无 client 注册）→ 无法刷新，返回 nil（fetch 显示"重启 kiro"）
+        let credsResult = loadTokenCreds()
+        guard case .success(let creds) = credsResult else {
+            if case .unsupportedProvider = credsResult {
+                // Google 登录无本地 client：清除过期缓存避免误导，提示重启 kiro
+                invalidateCachedCreds()
+            }
+            return nil
+        }
         guard let url = URL(string: "https://oidc.us-east-1.amazonaws.com/token") else { return nil }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -159,34 +167,53 @@ struct KiroProvider: UsageProvider {
         _ = LocalSecretStore.delete("kiroAccessToken")
     }
 
+    /// 刷新凭据读取结果：成功返回凭据；失败区分"无凭据/无法刷新"
+    enum CredsResult {
+        case success(KiroTokenCreds)
+        /// 登录方式（如 Google/social）无本地 client 注册，App 无法自动刷新
+        case unsupportedProvider
+        /// 本地文件缺失或损坏
+        case missing
+    }
+
     /// 读取刷新凭据：优先用持久化的 refreshToken，兜底读 .aws 文件
-    private func loadTokenCreds() -> KiroTokenCreds? {
+    private func loadTokenCreds() -> CredsResult {
         // refreshToken：本地持久化优先 → .aws 文件
         let cachedRefresh = LocalSecretStore.get("kiroRefreshToken")
         if let cached = cachedRefresh, !cached.isEmpty {
-            // clientId/clientSecret 仍需从 .aws 文件读（不常变）
-            if let creds = readCredsFromFile(refreshToken: cached) { return creds }
+            if case .success(let creds) = readCredsFromFile(refreshToken: cached) {
+                return .success(creds)
+            }
         }
         return readCredsFromFile(refreshToken: nil)
     }
 
     /// 从 ~/.aws/sso/cache 读 clientId/clientSecret 与 refreshToken。
     /// cacheDir 可注入（测试用临时目录），默认行为不变。
+    /// 自适应判断：BuilderId（有 clientIdHash）→ 可 OIDC 刷新；
+    /// Google/social（无 clientIdHash）→ .unsupportedProvider（App 无法自动刷新，需重启 kiro）。
     func readCredsFromFile(refreshToken cached: String?,
                            cacheDir: URL = FileManager.default.homeDirectoryForCurrentUser
-                               .appendingPathComponent(".aws/sso/cache")) -> KiroTokenCreds? {
+                               .appendingPathComponent(".aws/sso/cache")) -> CredsResult {
         // kiro-auth-token.json
         guard let tokData = try? Data(contentsOf: cacheDir.appendingPathComponent("kiro-auth-token.json")),
-              let tok = try? JSONSerialization.jsonObject(with: tokData) as? [String: Any],
-              let clientIdHash = tok["clientIdHash"] as? String else { return nil }
+              let tok = try? JSONSerialization.jsonObject(with: tokData) as? [String: Any] else {
+            return .missing
+        }
         let refresh = cached ?? (tok["refreshToken"] as? String)
-        guard let refresh, !refresh.isEmpty else { return nil }
+        guard let refresh, !refresh.isEmpty else { return .missing }
+        // Google/social 登录：token 文件无 clientIdHash → 无 client 注册，App 无法刷新
+        guard let clientIdHash = tok["clientIdHash"] as? String else {
+            return .unsupportedProvider
+        }
         // <clientIdHash>.json
         guard let clientData = try? Data(contentsOf: cacheDir.appendingPathComponent("\(clientIdHash).json")),
               let client = try? JSONSerialization.jsonObject(with: clientData) as? [String: Any],
               let clientId = client["clientId"] as? String, !clientId.isEmpty,
-              let clientSecret = client["clientSecret"] as? String, !clientSecret.isEmpty else { return nil }
-        return KiroTokenCreds(refreshToken: refresh, clientId: clientId, clientSecret: clientSecret)
+              let clientSecret = client["clientSecret"] as? String, !clientSecret.isEmpty else {
+            return .missing
+        }
+        return .success(KiroTokenCreds(refreshToken: refresh, clientId: clientId, clientSecret: clientSecret))
     }
 
     // MARK: - 解析（internal 供测试）
