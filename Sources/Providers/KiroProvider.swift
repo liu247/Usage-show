@@ -106,18 +106,13 @@ struct KiroProvider: UsageProvider {
             ])
         } catch HTTPError.status(401) {
             Self.logger.error("KiroProvider HTTP 401: token 无效（\(token.prefix(8), privacy: .public), arn \(arn.prefix(30), privacy: .public)）")
-            // 401：凭证无效，提示重启 kiro
-            return UsageSnapshot(providerID: id, shortText: "--",
-                                 fullText: "kiro 登录过期，请重启 kiro 刷新",
-                                 fractionUsed: nil, rawValue: "", error: "kiro 登录过期，请重启 kiro 刷新")
+            return expiredSnapshot()
         } catch HTTPError.status(403) {
             Self.logger.error("KiroProvider HTTP 403: token 过期或无效（\(token.prefix(8), privacy: .public), arn \(arn.prefix(30), privacy: .public)）→ 尝试刷新")
             // 403：accessToken 过期（{"message":"Token expired"}）→ OIDC refresh 后重试一次
             guard let refreshed = await refreshToken() else {
-                Self.logger.error("KiroProvider 刷新失败：显示登录过期")
-                return UsageSnapshot(providerID: id, shortText: "--",
-                                     fullText: "kiro 登录过期，请重启 kiro 刷新",
-                                     fractionUsed: nil, rawValue: "", error: "kiro 登录过期，请重启 kiro 刷新")
+                Self.logger.error("KiroProvider 刷新失败：显示登录过期（kiro 运行中=\(Self.isKiroRunning(), privacy: .public)）")
+                return expiredSnapshot()
             }
             do {
                 data = try await APIClient.get(url, headers: [
@@ -126,12 +121,35 @@ struct KiroProvider: UsageProvider {
                 ])
             } catch HTTPError.status(401), HTTPError.status(403) {
                 // 刷新后仍 401/403：登录已彻底失效
-                return UsageSnapshot(providerID: id, shortText: "--",
-                                     fullText: "kiro 登录过期，请重启 kiro 刷新",
-                                     fractionUsed: nil, rawValue: "", error: "kiro 登录过期，请重启 kiro 刷新")
+                return expiredSnapshot()
             }
         }
         return try parse(data: data)
+    }
+
+    /// 生成"登录过期"错误快照，提示文案区分 kiro 进程状态
+    private func expiredSnapshot() -> UsageSnapshot {
+        let msg = Self.isKiroRunning()
+            ? "kiro token 已过期，等待 kiro 自动刷新中…"
+            : "kiro 未运行，请打开 kiro 刷新登录"
+        return UsageSnapshot(providerID: id, shortText: "--",
+                             fullText: msg, fractionUsed: nil, rawValue: "", error: msg)
+    }
+
+    /// 检测 kiro 主进程是否运行（/Applications/Kiro.app 的 Electron 主进程）
+    private static func isKiroRunning() -> Bool {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        p.arguments = ["-f", "Kiro.app/Contents/MacOS"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        do {
+            try p.run()
+            p.waitUntilExit()
+        } catch { return false }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        return !data.isEmpty
     }
 
     // MARK: - Token 刷新（403 触发）
