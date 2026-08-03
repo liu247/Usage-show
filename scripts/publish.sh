@@ -61,14 +61,23 @@ rm -rf /tmp/dmg_stage && mkdir -p /tmp/dmg_stage
 ditto Usage-show.app /tmp/dmg_stage/Usage-show.app
 find /tmp/dmg_stage -name "._*" -delete 2>/dev/null || true
 ln -sf /Applications /tmp/dmg_stage/Applications
+DMG_BUILT=0
 if hdiutil create -volname "Usage-show" -srcfolder /tmp/dmg_stage -ov -format UDZO "$DMG" >/tmp/dmg_build.log 2>&1; then
+  DMG_BUILT=1
+else
+  # 受限环境（无挂载权限）→ 用 osascript 管理员权限重试（会弹密码框）
+  echo "==> hdiutil 直接打包失败，尝试 osascript 管理员权限（请在弹窗输入密码）"
+  if osascript -e "do shell script \"hdiutil create -volname 'Usage-show' -srcfolder /tmp/dmg_stage -ov -format UDZO '$DMG'\" with administrator privileges" >/tmp/dmg_osascript.log 2>&1; then
+    DMG_BUILT=1
+  else
+    echo "警告: dmg 打包失败（hdiutil 无权限且 osascript 未授权）。手动命令:"
+    echo "  hdiutil create -volname Usage-show -srcfolder /tmp/dmg_stage -ov -format UDZO $DMG"
+    echo "  （或将 Usage-show.app 拖入 /tmp/dmg_stage 后重试）"
+  fi
+fi
+if [ "$DMG_BUILT" = "1" ]; then
   echo "==> dmg 打包完成: $DMG ($(du -h "$DMG" | cut -f1))"
 else
-  echo "警告: dmg 打包失败（hdiutil 无权限）。请在有权限的终端手动运行:"
-  echo "  rm -rf /tmp/dmg_stage && mkdir -p /tmp/dmg_stage"
-  echo "  ditto Usage-show.app /tmp/dmg_stage/Usage-show.app"
-  echo "  ln -sf /Applications /tmp/dmg_stage/Applications"
-  echo "  hdiutil create -volname Usage-show -srcfolder /tmp/dmg_stage -ov -format UDZO /tmp/Usage-show-v$VERSION-macos-arm64.dmg"
   DMG=""  # 不传 dmg 资产
 fi
 
