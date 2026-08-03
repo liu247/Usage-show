@@ -51,10 +51,20 @@ struct KiroProvider: UsageProvider {
         return tok
     }
 
-    /// ~/Library/Application Support/kiro/User/globalStorage/kiro.kiroagent/profile.json → arn
+    /// profileArn 来源（Google/social 登录后内嵌于 token 文件，BuilderId 在 profile.json）：
+    /// 1. 优先：~/.aws/sso/cache/kiro-auth-token.json 的 profileArn（Google 登录后 kiro 只更新这里）
+    /// 2. 兜底：~/Library/Application Support/kiro/User/globalStorage/kiro.kiroagent/profile.json 的 arn
     static func defaultArn() -> String? {
-        let path = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/kiro/User/globalStorage/kiro.kiroagent/profile.json")
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        // 优先：token 文件内嵌的 profileArn
+        let tokPath = home.appendingPathComponent(".aws/sso/cache/kiro-auth-token.json")
+        if let data = try? Data(contentsOf: tokPath),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let tokArn = obj["profileArn"] as? String, !tokArn.isEmpty {
+            return tokArn
+        }
+        // 兜底：旧 profile.json
+        let path = home.appendingPathComponent("Library/Application Support/kiro/User/globalStorage/kiro.kiroagent/profile.json")
         guard let data = try? Data(contentsOf: path),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let arn = obj["arn"] as? String, !arn.isEmpty else { return nil }
