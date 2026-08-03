@@ -1,6 +1,9 @@
 import Foundation
+import OSLog
 
 struct KiroProvider: UsageProvider {
+    private static let logger = Logger(subsystem: "com.local.usage-show", category: "kiro")
+
     var id: String { "kiro" }
     var displayName: String { "Kiro" }
 
@@ -72,8 +75,23 @@ struct KiroProvider: UsageProvider {
     }
 
     func fetch() async throws -> UsageSnapshot {
-        guard let token = tokenProvider(), !token.isEmpty,
-              let arn = arnProvider(), !arn.isEmpty else {
+        let token = tokenProvider()
+        let arn = arnProvider()
+        guard let token, !token.isEmpty, let arn, !arn.isEmpty else {
+            // 诊断日志：区分 token / arn 缺失，记录读取来源与状态
+            let tokenInfo: String
+            if let token, !token.isEmpty {
+                tokenInfo = "token 存在（\(token.count) 字符，前缀 \(token.prefix(8))）"
+            } else {
+                tokenInfo = "token 缺失（缓存 + .aws 文件均无）"
+            }
+            let arnInfo: String
+            if let arn, !arn.isEmpty {
+                arnInfo = "arn 存在（\(arn.prefix(30))…）"
+            } else {
+                arnInfo = "arn 缺失（token 文件无 profileArn 且 profile.json 无 arn）"
+            }
+            Self.logger.error("KiroProvider notLoggedIn: \(tokenInfo, privacy: .public); \(arnInfo, privacy: .public)")
             throw KiroError.notLoggedIn
         }
         // profileArn 含 ':' 与 '*'，用 URLComponents 做 percent-encoding
@@ -87,13 +105,16 @@ struct KiroProvider: UsageProvider {
                 "Content-Type": "application/json",
             ])
         } catch HTTPError.status(401) {
+            Self.logger.error("KiroProvider HTTP 401: token 无效（\(token.prefix(8), privacy: .public), arn \(arn.prefix(30), privacy: .public)）")
             // 401：凭证无效，提示重启 kiro
             return UsageSnapshot(providerID: id, shortText: "--",
                                  fullText: "kiro 登录过期，请重启 kiro 刷新",
                                  fractionUsed: nil, rawValue: "", error: "kiro 登录过期，请重启 kiro 刷新")
         } catch HTTPError.status(403) {
+            Self.logger.error("KiroProvider HTTP 403: token 过期或无效（\(token.prefix(8), privacy: .public), arn \(arn.prefix(30), privacy: .public)）→ 尝试刷新")
             // 403：accessToken 过期（{"message":"Token expired"}）→ OIDC refresh 后重试一次
             guard let refreshed = await refreshToken() else {
+                Self.logger.error("KiroProvider 刷新失败：显示登录过期")
                 return UsageSnapshot(providerID: id, shortText: "--",
                                      fullText: "kiro 登录过期，请重启 kiro 刷新",
                                      fractionUsed: nil, rawValue: "", error: "kiro 登录过期，请重启 kiro 刷新")
