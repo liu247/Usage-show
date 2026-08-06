@@ -30,12 +30,12 @@ final class StatusBarController: NSObject {
     }
 
     @objc private func statusClicked(_ sender: Any?) {
-        // 点击：先刷新再弹菜单
+        // 点击：立即弹菜单（用当前缓存快照，零延迟），刷新在后台异步进行不阻塞弹出
+        showMenu()
         Task { @MainActor in
             isRefreshing = true
             await onRefresh()
             isRefreshing = false
-            self.showMenu()
         }
     }
 

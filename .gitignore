@@ -11,3 +11,6 @@ reasonix.toml
 
 # 忽略所有 AppleDouble 元数据文件（任何层级）
 **/._*
+
+# 本地构建产物 .app
+Usage-show.app/

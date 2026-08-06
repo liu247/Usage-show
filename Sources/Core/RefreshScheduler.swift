@@ -94,26 +94,45 @@ final class RefreshScheduler {
         defer { isRefreshing = false }
 
         let enabled = AppSettings.shared.enabledProviders
-        for (id, provider) in providers where enabled.contains(id) {
+        let now = now()
+        // 先筛出本轮要刷新的目标（启用且未在退避中），避免 TaskGroup 内再改 backoffs 造成竞争
+        let targets = providers.compactMap { (id, provider) -> (String, any UsageProvider)? in
+            guard enabled.contains(id) else { return nil }
             var b = backoffs[id] ?? BackoffTracker()
-            if b.isBackingOff(now: now()) {
-                // 处于退避中，跳过本轮；时间到后自然恢复重试
-                continue
+            if b.isBackingOff(now: now) { return nil }  // 退避中跳过；时间到后自然恢复
+            return (id, provider)
+        }
+        // 并行刷新各 Provider（互不阻塞，总耗时 ≈ 最慢单个），完成后统一回主 actor 更新 store
+        await withTaskGroup(of: (String, UsageSnapshot?, String?).self) { group in
+            for (id, provider) in targets {
+                group.addTask { @Sendable in
+                    do {
+                        let snap = try await provider.fetch()
+                        return (id, snap, nil)
+                    } catch {
+                        return (id, nil, Self.errorText(error))
+                    }
+                }
             }
-            do {
-                let snap = try await provider.fetch()
-                b.recordSuccess()
-                store.update(snap)
-            } catch {
-                b.recordFailure(now: now())
-                store.updateError(id: id, error: Self.errorText(error))
+            for await (id, snap, err) in group {
+                if let snap {
+                    var b = backoffs[id] ?? BackoffTracker()
+                    b.recordSuccess()
+                    backoffs[id] = b
+                    store.update(snap)
+                } else if let err {
+                    var b = backoffs[id] ?? BackoffTracker()
+                    b.recordFailure(now: now)
+                    backoffs[id] = b
+                    store.updateError(id: id, error: err)
+                }
             }
-            backoffs[id] = b
         }
     }
 
     /// 错误 → 展示文本：LocalizedError 优先取其中文 errorDescription，其余保留原始描述（如 status(500)）。
-    static func errorText(_ error: Error) -> String {
+    /// nonisolated：供 TaskGroup 的 @Sendable 子任务调用（纯函数，无隔离状态依赖）
+    nonisolated static func errorText(_ error: Error) -> String {
         if let localized = error as? any LocalizedError, let desc = localized.errorDescription {
             return desc
         }
