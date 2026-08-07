@@ -14,10 +14,11 @@ struct DeepSeekProviderTests {
         """
         let provider = DeepSeekProvider(apiKeyProvider: { "sk-test" })
         let snap = try provider.parse(data: Data(json.utf8))
-        #expect(snap.shortText == "¥88.5")
+        // 直接按返回值显示：88.50 → "¥88.50"（不四舍五入、不裁剪位数）
+        #expect(snap.shortText == "¥88.50")
         #expect(snap.status == .green)       // ≥50
-        #expect(snap.fullText.contains("88.5"))
-        #expect(snap.fullText.contains("78.5"))
+        #expect(snap.fullText.contains("¥88.50"))
+        #expect(snap.fullText.contains("¥78.50"))
     }
 
     @Test func testParseUSD() throws {
@@ -28,8 +29,20 @@ struct DeepSeekProviderTests {
         """
         let provider = DeepSeekProvider(apiKeyProvider: { "sk-test" })
         let snap = try provider.parse(data: Data(json.utf8))
-        #expect(snap.shortText == "$20")
+        #expect(snap.shortText == "$20.00")
         #expect(snap.status == .yellow)      // 10-50
+    }
+
+    /// 不四舍五入、不强制位数：保留 API 返回的原始精度（如 88.534 → "¥88.534"）
+    @Test func testParsePreservesRawPrecision() throws {
+        let json = """
+        { "is_available": true,
+          "balance_infos": [ { "currency": "CNY", "total_balance": "88.534",
+                              "granted_balance": "0", "topped_up_balance": "88.534" } ] }
+        """
+        let provider = DeepSeekProvider(apiKeyProvider: { "sk-test" })
+        let snap = try provider.parse(data: Data(json.utf8))
+        #expect(snap.shortText == "¥88.534")
     }
 
     @Test func testLowBalanceRed() throws {

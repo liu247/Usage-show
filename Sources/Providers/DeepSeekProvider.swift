@@ -77,8 +77,9 @@ struct DeepSeekProvider: UsageProvider {
             throw DeepSeekError.invalidResponse
         }
         let symbol = info.currency == "USD" ? "$" : "¥"
-        let short = Self.format(symbol: symbol, value: total)
-        let full = "\(short)（充值 \(Self.format(symbol: symbol, value: Double(info.toppedUpBalance) ?? 0)) / 赠送 \(Self.format(symbol: symbol, value: Double(info.grantedBalance) ?? 0))）"
+        // 不四舍五入、不强制位数：直接按 API 返回值显示（88.5 → "¥88.5"，88 → "¥88"，88.53 → "¥88.53"）
+        let short = "\(symbol)\(info.totalBalance)"
+        let full = "\(short)（充值 \(symbol)\(info.toppedUpBalance) / 赠送 \(symbol)\(info.grantedBalance)）"
         let status: StatusLevel = total >= 50 ? .green : (total >= 10 ? .yellow : .red)
         return UsageSnapshot(
             providerID: id,
@@ -88,14 +89,6 @@ struct DeepSeekProvider: UsageProvider {
             rawValue: "\(info.currency) \(info.totalBalance)",
             status: status
         )
-    }
-
-    /// 金额格式化：整数金额不带小数位（20.00 → "$20"），其余保留 1 位（88.50 → "¥88.5"）
-    private static func format(symbol: String, value: Double) -> String {
-        if value == value.rounded() {
-            return String(format: "%@%.0f", symbol, value)
-        }
-        return String(format: "%@%.1f", symbol, value)
     }
 }
 
